@@ -10,7 +10,7 @@ servicosRouter.use(authenticate)
 servicosRouter.get('/', async (req, res) => {
   try {
     const rows = await query('SELECT s.*, c.nome AS categoria FROM servicos s LEFT JOIN categorias_servico c ON c.id = s.categoria_id ORDER BY s.status DESC, s.nome')
-    res.json({ data: rows })
+    res.json(rows)
   } catch (err) { res.status(500).json({ message: 'Erro ao buscar serviços' }) }
 })
 
@@ -40,47 +40,163 @@ servicosRouter.delete('/:id', authorize('admin_geral', 'admin'), async (req, res
   } catch (err) { res.status(500).json({ message: 'Erro ao eliminar' }) }
 })
 
+// ── CATEGORIAS SERVICO ────────────────────────────────────
+servicosRouter.get('/categorias', async (req, res) => {
+  try {
+    const rows = await query('SELECT id, nome FROM categorias_servico ORDER BY nome')
+    res.json(rows)
+  } catch (err) { res.status(500).json({ message: 'Erro ao buscar categorias' }) }
+})
+
+// ── CATEGORIAS FLUXO ──────────────────────────────────────
+servicosRouter.get('/categorias-fluxo', async (req, res) => {
+  try {
+    const rows = await query('SELECT id, nome, tipo FROM categorias_caixa ORDER BY tipo, nome')
+    res.json(rows)
+  } catch (err) { res.status(500).json({ message: 'Erro ao buscar categorias' }) }
+})
+
 // ── USUARIOS ─────────────────────────────────────────────
 export const usuariosRouter = Router()
-usuariosRouter.use(authenticate, authorize('admin_geral'))
+usuariosRouter.use(authenticate, authorize('admin_geral', 'admin'))
 
 usuariosRouter.get('/', async (req, res) => {
   try {
-    const rows = await query('SELECT id, nome, email, role, status, ultimo_acesso, criado_em FROM users ORDER BY criado_em')
-    res.json({ data: rows })
-  } catch (err) { res.status(500).json({ message: 'Erro ao buscar utilizadores' }) }
+    const rows = await query('SELECT id, nome, email, role, status, ultimo_acesso, criado_em FROM users ORDER BY criado_em DESC')
+    res.json(rows)
+  } catch (err) { 
+    console.error('[USUARIOS] GET error:', err.message)
+    res.status(500).json({ message: 'Erro ao buscar utilizadores' }) 
+  }
+})
+
+usuariosRouter.get('/:id', async (req, res) => {
+  try {
+    const rows = await query('SELECT id, nome, email, role, status, ultimo_acesso, criado_em FROM users WHERE id = ?', [req.params.id])
+    if (!rows.length) return res.status(404).json({ message: 'Utilizador não encontrado' })
+    res.json(rows[0])
+  } catch (err) { 
+    console.error('[USUARIOS] GET :id error:', err.message)
+    res.status(500).json({ message: 'Erro ao buscar utilizador' }) 
+  }
 })
 
 usuariosRouter.post('/', async (req, res) => {
   const { nome, email, password, role = 'funcionario' } = req.body
+  
   if (!nome || !email || !password) return res.status(400).json({ message: 'Campos obrigatórios em falta' })
   if (password.length < 8) return res.status(400).json({ message: 'Password deve ter pelo menos 8 caracteres' })
+  
+  // Verificar email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  if (!emailRegex.test(email)) return res.status(400).json({ message: 'Email inválido' })
+  
+  // Apenas admin_geral pode criar admin_geral
+  if (role === 'admin_geral' && req.user.role !== 'admin_geral') {
+    return res.status(403).json({ message: 'Apenas Admin Geral pode criar Admin Geral' })
+  }
+  
   try {
     const hash = await bcrypt.hash(password, 10)
-    const result = await query('INSERT INTO users (nome, email, password_hash, role) VALUES (?,?,?,?)', [nome.trim(), email.toLowerCase().trim(), hash, role])
-    res.status(201).json({ data: { id: result.insertId, nome, email, role, status: 'activo' } })
+    const result = await query('INSERT INTO users (nome, email, password_hash, role, status) VALUES (?,?,?,?,?)', 
+      [nome.trim(), email.toLowerCase().trim(), hash, role, 'activo'])
+    
+    const newUser = await query('SELECT id, nome, email, role, status, ultimo_acesso, criado_em FROM users WHERE id = ?', [result.insertId])
+    res.status(201).json({ message: 'Utilizador criado com sucesso', data: newUser[0] })
   } catch (err) {
+    console.error('[USUARIOS] POST error:', err.message)
     if (err.code === 'ER_DUP_ENTRY') return res.status(409).json({ message: 'Email já registado' })
     res.status(500).json({ message: 'Erro ao criar utilizador' })
   }
 })
 
-usuariosRouter.patch('/:id', async (req, res) => {
-  const { nome, email, role, status } = req.body
+usuariosRouter.put('/:id', async (req, res) => {
+  const { nome, email, role, status, password } = req.body
+  const userId = parseInt(req.params.id)
+  
+  // Não permitir editar a si mesmo para remover permissões
+  if (userId === req.user.id && req.user.role === 'admin' && role === 'funcionario') {
+    return res.status(403).json({ message: 'Não pode remover suas próprias permissões' })
+  }
+  
+  // Não permitir criar/editar admin_geral sem ser admin_geral
+  if (role === 'admin_geral' && req.user.role !== 'admin_geral') {
+    return res.status(403).json({ message: 'Apenas Admin Geral pode editar Admin Geral' })
+  }
+  
   try {
-    await query('UPDATE users SET nome=COALESCE(?,nome), email=COALESCE(?,email), role=COALESCE(?,role), status=COALESCE(?,status) WHERE id=?', [nome, email, role, status, req.params.id])
-    const rows = await query('SELECT id, nome, email, role, status FROM users WHERE id=?', [req.params.id])
-    res.json({ data: rows[0] })
-  } catch (err) { res.status(500).json({ message: 'Erro ao actualizar' }) }
+    const users = await query('SELECT id FROM users WHERE id = ?', [userId])
+    if (!users.length) return res.status(404).json({ message: 'Utilizador não encontrado' })
+    
+    let updateFields = []
+    let updateValues = []
+    
+    if (nome) {
+      updateFields.push('nome = ?')
+      updateValues.push(nome.trim())
+    }
+    
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+      if (!emailRegex.test(email)) return res.status(400).json({ message: 'Email inválido' })
+      
+      const existing = await query('SELECT id FROM users WHERE email = ? AND id != ?', [email.toLowerCase().trim(), userId])
+      if (existing.length > 0) return res.status(409).json({ message: 'Email já em uso' })
+      updateFields.push('email = ?')
+      updateValues.push(email.toLowerCase().trim())
+    }
+    
+    if (role) {
+      updateFields.push('role = ?')
+      updateValues.push(role)
+    }
+    
+    if (status) {
+      updateFields.push('status = ?')
+      updateValues.push(status)
+    }
+    
+    if (password) {
+      if (password.length < 8) return res.status(400).json({ message: 'Senha deve ter pelo menos 8 caracteres' })
+      updateFields.push('password_hash = ?')
+      updateValues.push(await bcrypt.hash(password, 10))
+    }
+    
+    if (updateFields.length === 0) return res.status(400).json({ message: 'Nenhum campo para atualizar' })
+    
+    updateFields.push('actualizado_em = NOW()')
+    updateValues.push(userId)
+    
+    const sql = `UPDATE users SET ${updateFields.join(', ')} WHERE id = ?`
+    await query(sql, updateValues)
+    
+    const updated = await query('SELECT id, nome, email, role, status, ultimo_acesso, criado_em FROM users WHERE id = ?', [userId])
+    res.json({ message: 'Utilizador atualizado com sucesso', data: updated[0] })
+  } catch (err) {
+    console.error('[USUARIOS] PUT error:', err.message)
+    res.status(500).json({ message: 'Erro ao atualizar utilizador' })
+  }
 })
 
 usuariosRouter.delete('/:id', async (req, res) => {
-  if (Number(req.params.id) === req.user.id) return res.status(400).json({ message: 'Não pode eliminar a sua própria conta' })
+  const userId = parseInt(req.params.id)
+  
+  if (userId === req.user.id) return res.status(403).json({ message: 'Não pode eliminar a sua própria conta' })
+  
   try {
-    const result = await query('DELETE FROM users WHERE id=?', [req.params.id])
-    if (!result.affectedRows) return res.status(404).json({ message: 'Não encontrado' })
-    res.json({ message: 'Utilizador eliminado' })
-  } catch (err) { res.status(500).json({ message: 'Erro ao eliminar' }) }
+    const users = await query('SELECT role FROM users WHERE id = ?', [userId])
+    if (!users.length) return res.status(404).json({ message: 'Utilizador não encontrado' })
+    
+    if (users[0].role === 'admin_geral' && req.user.role !== 'admin_geral') {
+      return res.status(403).json({ message: 'Apenas Admin Geral pode deletar Admin Geral' })
+    }
+    
+    const result = await query('DELETE FROM users WHERE id = ?', [userId])
+    res.json({ message: 'Utilizador eliminado com sucesso' })
+  } catch (err) {
+    console.error('[USUARIOS] DELETE error:', err.message)
+    res.status(500).json({ message: 'Erro ao eliminar utilizador' })
+  }
 })
 
 // ── ESTATISTICAS ─────────────────────────────────────────

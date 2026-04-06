@@ -9,8 +9,9 @@ const pool = mysql.createPool({
   database:           process.env.DB_NAME || 'defaultdb',
   ssl:                { rejectUnauthorized: false },
   waitForConnections: true,
-  connectionLimit:    10,
+  connectionLimit:    5,
   queueLimit:         0,
+  enableKeepAlive:    true,
   timezone:           '+00:00',
 })
 

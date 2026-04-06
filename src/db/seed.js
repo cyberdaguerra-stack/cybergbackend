@@ -54,7 +54,7 @@ async function seed() {
     const catId = Object.fromEntries(cats.map(c => [c.nome, c.id]))
 
     await query(`
-      INSERT INTO servicos (nome, descricao, preco_mensal, categoria_id, status, criado_por) VALUES
+      INSERT IGNORE INTO servicos (nome, descricao, preco_mensal, categoria_id, status, criado_por) VALUES
         (?, ?, 25000,  ?, 'activo',   1),
         (?, ?, 45000,  ?, 'activo',   1),
         (?, ?, 75000,  ?, 'activo',   1),
@@ -66,16 +66,16 @@ async function seed() {
         (?, ?, 12000,  ?, 'inactivo', 1),
         (?, ?, 22000,  ?, 'activo',   1)
     `, [
-      'Internet Fibra 10 Mbps',      'Plano residencial básico',           catId['Internet'],
-      'Internet Fibra 50 Mbps',      'Plano médio ideal para famílias',    catId['Internet'],
-      'Internet Fibra 100 Mbps',     'Alta velocidade para empresas',      catId['Internet'],
-      'Internet Empresarial 200Mbps','Plano dedicado empresarial',         catId['Internet'],
-      'Instalação Residencial',      'Instalação completa em casa',        catId['Instalação'],
-      'Instalação Empresarial',      'Cablagem estruturada empresarial',   catId['Instalação'],
-      'Suporte Técnico Remoto',      'Assistência via vídeo ou telefone',  catId['Suporte'],
-      'Suporte Técnico Presencial',  'Técnico deslocado ao local',         catId['Suporte'],
-      'TV por Cabo Básico',          'Pacote com 50+ canais',              catId['TV'],
-      'TV por Cabo Premium',         'Pacote com 120+ canais HD',          catId['TV'],
+      'Internet Fibra 10 Mbps',      'Plano residencial básico',           catId['Internet'] || null,
+      'Internet Fibra 50 Mbps',      'Plano médio ideal para famílias',    catId['Internet'] || null,
+      'Internet Fibra 100 Mbps',     'Alta velocidade para empresas',      catId['Internet'] || null,
+      'Internet Empresarial 200Mbps','Plano dedicado empresarial',         catId['Internet'] || null,
+      'Instalação Residencial',      'Instalação completa em casa',        catId['Instalação'] || null,
+      'Instalação Empresarial',      'Cablagem estruturada empresarial',   catId['Instalação'] || null,
+      'Suporte Técnico Remoto',      'Assistência via vídeo ou telefone',  catId['Suporte'] || null,
+      'Suporte Técnico Presencial',  'Técnico deslocado ao local',         catId['Suporte'] || null,
+      'TV por Cabo Básico',          'Pacote com 50+ canais',              catId['TV'] || null,
+      'TV por Cabo Premium',         'Pacote com 120+ canais HD',          catId['TV'] || null,
     ])
 
     // ── FLUXO DE CAIXA (90 days) ───────────────────────────
@@ -90,32 +90,38 @@ async function seed() {
       const dateStr = date.toISOString().split('T')[0]
       const batch = []
 
-      // Internet (2–5/dia)
+      // Internet (2–5/dia) - usar primeiro id se não encontrar
+      const internetId = txCat['Internet'] || 1
       const n = 2 + Math.floor(Math.random() * 4)
       for (let i = 0; i < n; i++) {
         const v = [25000, 45000, 75000][Math.floor(Math.random() * 3)]
-        batch.push([`entrada`, `Mensalidade Internet — Cliente #${1000 + Math.floor(Math.random() * 8000)}`, v, txCat['Internet'], dateStr, 1])
+        batch.push([`entrada`, `Mensalidade Internet — Cliente #${1000 + Math.floor(Math.random() * 8000)}`, v, internetId, dateStr, 1])
       }
       // Instalações
       if (Math.random() > 0.6) {
-        batch.push(['entrada', `Instalação ${Math.random() > 0.5 ? 'Residencial' : 'Empresarial'}`, Math.random() > 0.5 ? 35000 : 65000, txCat['Instalação'], dateStr, 2])
+        const instId = txCat['Instalação'] || 1
+        batch.push(['entrada', `Instalação ${Math.random() > 0.5 ? 'Residencial' : 'Empresarial'}`, Math.random() > 0.5 ? 35000 : 65000, instId, dateStr, 2])
       }
       // Suporte
       if (Math.random() > 0.5) {
-        batch.push(['entrada', 'Suporte Técnico', Math.random() > 0.5 ? 8000 : 15000, txCat['Suporte'], dateStr, 2])
+        const supId = txCat['Suporte'] || 1
+        batch.push(['entrada', 'Suporte Técnico', Math.random() > 0.5 ? 8000 : 15000, supId, dateStr, 2])
       }
       // Salário mensal
       if (d % 30 === 0) {
-        batch.push(['saida', 'Folha Salarial', 120000, txCat['Salários'], dateStr, 1])
+        const salId = txCat['Salários'] || 1
+        batch.push(['saida', 'Folha Salarial', 120000, salId, dateStr, 1])
       }
       // Fornecedor semanal
       if (d % 7 === 0) {
-        batch.push(['saida', 'Pagamento Fornecedor Fibra', 50000 + Math.floor(Math.random() * 40000), txCat['Fornecedores'], dateStr, 1])
+        const fornId = txCat['Fornecedores'] || 1
+        batch.push(['saida', 'Pagamento Fornecedor Fibra', 50000 + Math.floor(Math.random() * 40000), fornId, dateStr, 1])
       }
       // Operacional
       if (Math.random() > 0.7) {
+        const opId = txCat['Operacional'] || 1
         const items = ['Combustível viatura', 'Água e energia', 'Material escritório', 'Aluguer escritório']
-        batch.push(['saida', items[Math.floor(Math.random() * items.length)], 5000 + Math.floor(Math.random() * 20000), txCat['Operacional'], dateStr, 2])
+        batch.push(['saida', items[Math.floor(Math.random() * items.length)], 5000 + Math.floor(Math.random() * 20000), opId, dateStr, 2])
       }
 
       if (batch.length > 0) {

@@ -11,6 +11,9 @@ router.get('/', async (req, res) => {
   if (data) { conds.push('f.data_tx = ?'); params.push(data) }
   if (tipo) { conds.push('f.tipo = ?');    params.push(tipo) }
   const where = conds.length ? `WHERE ${conds.join(' AND ')}` : ''
+  const pageNum = Number(page)
+  const limitNum = Number(limit)
+  const offset = (pageNum - 1) * limitNum
   try {
     const rows = await query(`
       SELECT f.id, f.tipo, f.descricao, f.valor, f.data_tx, f.hora_tx, f.observacoes, f.criado_em,
@@ -20,10 +23,10 @@ router.get('/', async (req, res) => {
       LEFT JOIN users u ON u.id = f.criado_por
       ${where}
       ORDER BY f.data_tx DESC, f.hora_tx DESC
-      LIMIT ? OFFSET ?
-    `, [...params, Number(limit), (Number(page) - 1) * Number(limit)])
+      LIMIT ${limitNum} OFFSET ${offset}
+    `, params)
     const [{ total }] = await query(`SELECT COUNT(*) AS total FROM fluxo_caixa f ${where}`, params)
-    res.json({ data: rows, total, page: Number(page), limit: Number(limit) })
+    res.json(rows)
   } catch (err) { console.error(err); res.status(500).json({ message: 'Erro ao buscar registos' }) }
 })
 

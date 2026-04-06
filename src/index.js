@@ -11,7 +11,7 @@ import { query } from './db/pool.js'
 const app  = express()
 const PORT = process.env.PORT || 3001
 
-// TRUST PROXY — obrigatório no Vercel/serverless lk
+// TRUST PROXY — obrigatório no Vercel/serverless
 app.set('trust proxy', 1)
 
 app.use(cors({ origin: process.env.CORS_ORIGIN?.split(',') ?? '*', credentials: true }))
@@ -115,6 +115,8 @@ app.get('/api/setup', async (req, res) => {
 app.use('/api/auth',         authRouter)
 app.use('/api/fluxo',        fluxoRouter)
 app.use('/api/servicos',     servicosRouter)
+app.use('/api/categorias-servico', servicosRouter)
+app.use('/api/categorias-fluxo',   servicosRouter)
 app.use('/api/usuarios',     usuariosRouter)
 app.use('/api/estatisticas', estatisticasRouter)
 app.use('/api/relatorios',   relatoriosRouter)
@@ -122,5 +124,18 @@ app.use('/api/relatorios',   relatoriosRouter)
 app.use((req,res) => res.status(404).json({ message:`${req.method} ${req.path} nao encontrado` }))
 app.use((err,req,res,_next) => { console.error(err); res.status(500).json({ message:'Erro interno' }) })
 
-app.listen(PORT, () => console.log(`Cyber G API porta ${PORT}`))
-export default app;
+const server = app.listen(PORT, '127.0.0.1', () => {
+  console.log(`Cyber G API porta ${PORT}`)
+  console.log('Server listening on http://127.0.0.1:' + PORT)
+})
+
+// Handle errors
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason)
+})
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error)
+})
+
+export default app
